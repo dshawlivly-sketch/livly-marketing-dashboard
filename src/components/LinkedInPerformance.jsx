@@ -27,24 +27,59 @@ export default function LinkedInPerformance() {
   const saveSnapshots = next => setSnapshots(next)
 
   const parseCSV = (text) => {
-    const lines = text.split('\n').filter(l => l.trim())
-    const header = lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
-    const rows = lines.slice(1).map(l => {
-      const vals = l.split(',').map(v => v.trim().replace(/"/g, ''))
-      return Object.fromEntries(header.map((h, i) => [h, vals[i] || '']))
-    }).filter(r => r['Impressions'] || r['Impressions (organic)'] || r['Impressions (total)'])
+    // Planable / LinkedIn exports have different structures.
+    // Planable: row 0 = metadata ("CURRENT PERIOD..."), row 1 = headers, row 2+ = daily data
+    // LinkedIn native: row 0 = headers, row 1+ = data
+    // We detect which by checking if row 0 has real column names.
 
-    if (rows.length === 0) return null
+    const parseRow = (line) => {
+      const result = []
+      let cur = '', inQ = false
+      for (const ch of line) {
+        if (ch === '"') { inQ = !inQ }
+        else if (ch === ',' && !inQ) { result.push(cur.trim()); cur = '' }
+        else { cur += ch }
+      }
+      result.push(cur.trim())
+      return result
+    }
 
-    const totalImpressions = rows.reduce((s, r) => s + (parseFloat(r['Impressions']) || parseFloat(r['Impressions (organic)']) || parseFloat(r['Impressions (total)']) || 0), 0)
-    const totalFollowers = rows.reduce((s, r) => s + (parseFloat(r['Organic followers']) || parseFloat(r['Total followers']) || 0), 0)
-    const totalEngagement = rows.reduce((s, r) => s + (parseFloat(r['Engagement']) || parseFloat(r['Reactions (organic)']) || 0), 0)
-    const postCount = rows.filter(r => parseFloat(r['Impressions']) > 0 || parseFloat(r['Impressions (organic)']) > 0).length
+    const rawLines = text.split('\n').filter(l => l.trim())
+    if (rawLines.length < 2) return null
+
+    // Detect Planable format: first line contains no comma-separated column names
+    const firstRow = parseRow(rawLines[0])
+    const isPlanabler = firstRow.length === 1 || !firstRow.some(v =>
+      ['date','impressions','engagement','audience','followers'].includes(v.toLowerCase())
+    )
+    const headerRowIdx = isPlanabler ? 1 : 0
+    const headers = parseRow(rawLines[headerRowIdx]).map(h => h.replace(/"/g, '').trim())
+    const dataRows = rawLines.slice(headerRowIdx + 1).map(l => {
+      const vals = parseRow(l).map(v => v.replace(/"/g, '').trim())
+      return Object.fromEntries(headers.map((h, i) => [h, vals[i] || '']))
+    }).filter(r => r['Date'] && r['Date'] !== 'Total' && r['Audience'] && r['Impressions'])
+
+    if (dataRows.length === 0) return null
+
+    // If multiple pages, prefer Livly page; fall back to all rows
+    const livlyRows = dataRows.filter(r => r['Page'] && r['Page'].toLowerCase().includes('livly'))
+    const rows = livlyRows.length > 0 ? livlyRows : dataRows
+
+    // Follower delta: last audience value minus first
+    const audiences = rows.map(r => parseInt(r['Audience']) || 0).filter(n => n > 0)
+    const netFollowers = audiences.length >= 2 ? audiences[audiences.length - 1] - audiences[0] : 0
+
+    // Average daily impressions and engagement rate
+    const impressionVals = rows.map(r => parseFloat(r['Impressions']) || 0)
+    const erVals = rows.map(r => parseFloat(r['Engagement Rate (%)']) || 0)
+    const avgImp = impressionVals.length ? Math.round(impressionVals.reduce((a,b)=>a+b,0) / impressionVals.length) : 0
+    const avgEr = erVals.length ? parseFloat((erVals.reduce((a,b)=>a+b,0) / erVals.length).toFixed(1)) : 0
 
     return {
-      avgImpressions: postCount > 0 ? Math.round(totalImpressions / postCount) : 0,
-      netFollowers: Math.round(totalFollowers),
-      engagementRate: totalImpressions > 0 ? parseFloat(((totalEngagement / totalImpressions) * 100).toFixed(1)) : 0,
+      avgImpressions: avgImp,
+      netFollowers,
+      engagementRate: avgEr,
+      dataType: 'daily-page', // flag so UI can label correctly
     }
   }
 
@@ -148,7 +183,7 @@ export default function LinkedInPerformance() {
 
       {/* Stat cards */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
-        {statCard('Avg post impressions', avgImpressions, TARGETS.impressions, 'per post', B.green)}
+        {statCard('Avg daily impressions', avgImpressions, TARGETS.impressions, '/ day', B.green)}
         {statCard('Net new followers / wk', snapshots.length ? Math.round(snapshots.reduce((s, n) => s + n.netFollowers, 0) / snapshots.length) : 0, TARGETS.followersPerWeek, '/ week', B.green)}
         {statCard('Content demos (total)', totalContentDemos, 5, '/ 5 target', B.green)}
         {statCard('Livly page followers', latestFollowers, 0, 'total', B.green)}
@@ -165,7 +200,7 @@ export default function LinkedInPerformance() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
             {/* Impressions chart */}
             <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '16px 20px' }}>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: B.textTert, marginBottom: 14 }}>Avg post impressions vs 800 target</div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: B.textTert, marginBottom: 14 }}>Avg daily impressions (Planable export is page-level, not per-post)</div>
               <ResponsiveContainer width="100%" height={180}>
                 <AreaChart data={impressionData}>
                   <defs>
