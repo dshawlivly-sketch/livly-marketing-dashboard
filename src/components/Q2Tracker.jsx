@@ -6,32 +6,42 @@ import { useStore } from '../utils/useStore.js'
 const ROCK_COLORS = { r1: B.amber, r2: B.coral, r3: B.green, r4: B.blue }
 
 export default function Q2Tracker() {
-  const [statuses, setStatuses] = useStore('livly-tracker-states', {})
-  const [notes, setNotes] = useStore('livly-tracker-notes', {})
+  const [statuses, setStatuses]     = useStore('livly-tracker-states', {})
+  const [notes, setNotes]           = useStore('livly-tracker-notes', {})
+  const [completions, setCompletions] = useStore('livly-tracker-completions', {})
   const [activeRock, setActiveRock] = useState('r1')
-  const [catFilter, setCatFilter] = useState('all')
-  const [openNote, setOpenNote] = useState(null)
-  const [noteInput, setNoteInput] = useState('')
+  const [catFilter, setCatFilter]   = useState('all')
+  const [openNote, setOpenNote]     = useState(null)
+  const [noteInput, setNoteInput]   = useState('')
 
-  const cycle = id => setStatuses(p => {
-    const cur = p[id] || 'todo'
-    return { ...p, [id]: SORDER[(SORDER.indexOf(cur) + 1) % 4] }
-  })
+  const cycle = id => {
+    const cur  = statuses[id] || 'todo'
+    const next = SORDER[(SORDER.indexOf(cur) + 1) % 4]
+
+    setStatuses(p => ({ ...p, [id]: next }))
+
+    // Record timestamp when landing on done; clear when leaving done
+    if (next === 'done') {
+      setCompletions(p => ({ ...p, [id]: new Date().toISOString() }))
+    } else if (cur === 'done') {
+      setCompletions(p => { const n = { ...p }; delete n[id]; return n })
+    }
+  }
 
   const prog = rid => {
-    const all = ITEMS.filter(i => i.rock === rid)
+    const all  = ITEMS.filter(i => i.rock === rid)
     const done = all.filter(i => (statuses[i.id] || 'todo') === 'done').length
     return { done, total: all.length, pct: Math.round(done / all.length * 100) }
   }
 
-  const rock = ROCKS.find(r => r.id === activeRock)
-  const rockItems = ITEMS.filter(i => i.rock === activeRock)
-  const allCats = [...new Set(rockItems.map(i => i.cat))]
-  const visible = catFilter === 'all' ? rockItems : rockItems.filter(i => i.cat === catFilter)
-  const groups = catFilter === 'all' ? allCats : [catFilter]
+  const rock       = ROCKS.find(r => r.id === activeRock)
+  const rockItems  = ITEMS.filter(i => i.rock === activeRock)
+  const allCats    = [...new Set(rockItems.map(i => i.cat))]
+  const visible    = catFilter === 'all' ? rockItems : rockItems.filter(i => i.cat === catFilter)
+  const groups     = catFilter === 'all' ? allCats : [catFilter]
 
-  const totalDone = ITEMS.filter(i => (statuses[i.id] || 'todo') === 'done').length
-  const totalDoing = ITEMS.filter(i => (statuses[i.id] || 'todo') === 'doing').length
+  const totalDone    = ITEMS.filter(i => (statuses[i.id] || 'todo') === 'done').length
+  const totalDoing   = ITEMS.filter(i => (statuses[i.id] || 'todo') === 'doing').length
   const totalBlocked = ITEMS.filter(i => (statuses[i.id] || 'todo') === 'blocked').length
 
   return (
@@ -43,15 +53,15 @@ export default function Q2Tracker() {
         <div style={{ fontSize: 13, color: B.textSec }}>
           <span style={{ color: B.green }}>{totalDone}</span> done &nbsp;·&nbsp;
           <span style={{ color: B.amber }}>{totalDoing}</span> in progress &nbsp;·&nbsp;
-          <span style={{ color: '#e05a4a' }}>{totalBlocked}</span> blocked &nbsp;·&nbsp;
+          {totalBlocked > 0 && <><span style={{ color: '#e05a4a' }}>{totalBlocked}</span> blocked &nbsp;·&nbsp;</>}
           {Math.round(totalDone / ITEMS.length * 100)}% complete
         </div>
       </div>
 
-      {/* Progress cards */}
+      {/* Rock progress cards */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
         {ROCKS.map(r => {
-          const p = prog(r.id)
+          const p      = prog(r.id)
           const active = r.id === activeRock
           return (
             <div key={r.id} onClick={() => { setActiveRock(r.id); setCatFilter('all'); setOpenNote(null) }}
@@ -76,7 +86,7 @@ export default function Q2Tracker() {
         ))}
       </div>
 
-      {/* Rock heading */}
+      {/* Rock heading + category filters */}
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: ROCK_COLORS[activeRock], marginBottom: 3 }}>
           Rock {rock.n}{rock.bonus ? ' — bonus' : ''}
@@ -101,12 +111,13 @@ export default function Q2Tracker() {
             <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: B.textTert, margin: '10px 0 5px 2px' }}>{cat}</div>
             <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, overflow: 'hidden' }}>
               {groupItems.map((item, idx) => {
-                const st = statuses[item.id] || 'todo'
-                const cfg = SCFG[st]
-                const isDone = st === 'done'
+                const st      = statuses[item.id] || 'todo'
+                const cfg     = SCFG[st]
+                const isDone  = st === 'done'
                 const hasNote = !!notes[item.id]
-                const isOpen = openNote === item.id
-                const isLast = idx === groupItems.length - 1
+                const isOpen  = openNote === item.id
+                const isLast  = idx === groupItems.length - 1
+                const ts      = completions[item.id]
                 return (
                   <div key={item.id} style={{ borderBottom: (!isLast || isOpen) ? `1px solid ${B.border}` : 'none' }}>
                     <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px', gap: 10 }}>
@@ -114,8 +125,15 @@ export default function Q2Tracker() {
                         style={{ background: cfg.bg, color: cfg.color, border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 10, fontWeight: 500, cursor: 'pointer', whiteSpace: 'nowrap', minWidth: 86, textAlign: 'center', fontFamily: 'inherit', flexShrink: 0 }}>
                         {cfg.label}
                       </button>
-                      <div style={{ flex: 1, fontSize: 13, lineHeight: 1.45, color: isDone ? B.textTert : 'rgba(255,255,255,0.88)', textDecoration: isDone ? 'line-through' : 'none' }}>
-                        {item.text}
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, lineHeight: 1.45, color: isDone ? B.textTert : 'rgba(255,255,255,0.88)', textDecoration: isDone ? 'line-through' : 'none' }}>
+                          {item.text}
+                        </div>
+                        {isDone && ts && (
+                          <div style={{ fontSize: 9, color: B.textTert, marginTop: 2 }}>
+                            Completed {new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        )}
                       </div>
                       <button onClick={() => { setOpenNote(isOpen ? null : item.id); setNoteInput(notes[item.id] || '') }}
                         style={{ background: hasNote ? ROCK_COLORS[activeRock] + '22' : 'none', color: hasNote ? ROCK_COLORS[activeRock] : B.textTert, border: 'none', borderRadius: 4, padding: '4px 8px', fontSize: 11, cursor: 'pointer', flexShrink: 0, fontFamily: 'inherit' }}>
@@ -136,7 +154,11 @@ export default function Q2Tracker() {
                             style={{ flex: 1, background: 'rgba(255,255,255,0.07)', border: 'none', borderRadius: 6, color: B.textSec, fontSize: 12, padding: 8, cursor: 'pointer', fontFamily: 'inherit' }}>
                             Cancel
                           </button>
-                          <button onClick={() => { if (noteInput.trim()) setNotes(p => ({ ...p, [item.id]: noteInput.trim() })); else { const n = { ...notes }; delete n[item.id]; setNotes(n) } setOpenNote(null) }}
+                          <button onClick={() => {
+                            if (noteInput.trim()) setNotes(p => ({ ...p, [item.id]: noteInput.trim() }))
+                            else setNotes(p => { const n = { ...p }; delete n[item.id]; return n })
+                            setOpenNote(null)
+                          }}
                             style={{ flex: 2, background: ROCK_COLORS[activeRock], border: 'none', borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 500, padding: 8, cursor: 'pointer', fontFamily: 'inherit' }}>
                             Save note
                           </button>

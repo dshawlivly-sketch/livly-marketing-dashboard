@@ -10,11 +10,14 @@ import PromptLibrary from './components/PromptLibrary.jsx'
 import AssetLibrary from './components/AssetLibrary.jsx'
 import ActionCenter from './components/ActionCenter.jsx'
 import FyxerIntel from './components/FyxerIntel.jsx'
+import WeeklyRecap from './components/WeeklyRecap.jsx'
+
 
 const NAV = [
   { id: 'command',  label: 'Command Center',  path: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
   { id: 'action',   label: 'Action Center',   path: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01', accent: B.coral },
   { id: 'fyxer',   label: 'Fyxer Intel',     path: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', accent: B.amber },
+  { id: 'recap', label: 'Weekly Recap',    path: 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', accent: B.green },
   { id: 'tracker', label: 'Q2 Tracker',      path: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' },
   { id: 'calendar',label: 'Content Calendar',path: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
   { id: 'linkedin',label: 'LinkedIn',         path: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z', accent: B.green },
@@ -27,6 +30,7 @@ const COMPONENTS = {
   command: CommandCenter, action: ActionCenter, fyxer: FyxerIntel,
   tracker: Q2Tracker, calendar: ContentCalendar, linkedin: LinkedInPerformance,
   apollo: ApolloPipeline, prompts: PromptLibrary, assets: AssetLibrary,
+  recap: WeeklyRecap,
 }
 
 function ToastContainer({ toasts, onDismiss }) {

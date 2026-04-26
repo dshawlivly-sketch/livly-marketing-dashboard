@@ -106,17 +106,23 @@ function ContractsSection({ contracts, onUpdate }) {
         return (
           <div key={c.id} style={{ background: B.surface, border: `1px solid ${urgent ? 'rgba(224,90,74,0.4)' : B.border}`, borderRadius: 8, padding: '14px 16px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: B.text, marginBottom: 3 }}>{c.documentName}</div>
-              {c.sender && <div style={{ fontSize: 11, color: B.textSec }}>{c.sender}</div>}
-              {days !== null && (
-                <div style={{ fontSize: 11, color: urgent ? '#e05a4a' : B.textTert, marginTop: 3 }}>
-                  {days < 0 ? `⚠ Overdue ${Math.abs(days)}d` : days === 0 ? '⚠ Due today' : `Due in ${days}d`}
-                </div>
-              )}
+              <div style={{ fontSize: 13, fontWeight: 500, color: B.text, marginBottom: 4 }}>{c.documentName}</div>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                {c.sender && (
+                  <div style={{ fontSize: 11, color: B.textTert }}>
+                    <span style={{ color: 'rgba(255,255,255,0.3)' }}>From </span>{c.sender}
+                  </div>
+                )}
+                {days !== null && (
+                  <div style={{ fontSize: 11, color: urgent ? '#e05a4a' : B.textTert }}>
+                    {days < 0 ? `⚠ Overdue ${Math.abs(days)}d` : days === 0 ? '⚠ Due today' : `Due in ${days}d`}
+                  </div>
+                )}
+              </div>
             </div>
-            {c.executionLink && c.executionLink !== 'https://example.com/sign-here' && (
+            {c.executionLink && (
               <a href={c.executionLink} target="_blank" rel="noopener noreferrer"
-                style={{ background: B.coral, color: '#111', borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 500, textDecoration: 'none' }}>
+                style={{ background: B.coral, color: '#111', borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 500, textDecoration: 'none', whiteSpace: 'nowrap' }}>
                 ✍ Sign
               </a>
             )}
@@ -433,6 +439,7 @@ export default function FyxerIntel() {
   const [meetings,  setMeetings]  = useStore('livly-fyxer-meetings',  [])
   const [actions,   setActionsRaw] = useStore('livly-fyxer-actions',  [])
   const [contracts, setContracts] = useStore('livly-fyxer-contracts', [])
+  const [actionCompletions, setActionCompletions] = useStore('livly-fyxer-action-completions', {})
   const [confActive,   setConfActive]   = useState([])
   const [confArchived, setConfArchived] = useState([])
   const [confLoading, setConfLoading]   = useState(false)
@@ -485,7 +492,19 @@ export default function FyxerIntel() {
     if (id === '__add__') {
       setActions(prev => [updates, ...(Array.isArray(prev) ? prev : [])])
     } else {
-      setActions(prev => (Array.isArray(prev) ? prev : []).map(a => a.id === id ? { ...a, ...updates } : a))
+      const prev = Array.isArray(safeActions) ? safeActions : []
+      const existing = prev.find(a => a.id === id)
+      const prevStatus = existing?.status
+      const newStatus  = updates.status
+
+      setActions(p => (Array.isArray(p) ? p : []).map(a => a.id === id ? { ...a, ...updates } : a))
+
+      // Timestamp transitions into/out of Done
+      if (newStatus === 'Done' && prevStatus !== 'Done') {
+        setActionCompletions(p => ({ ...p, [id]: new Date().toISOString() }))
+      } else if (prevStatus === 'Done' && newStatus !== 'Done') {
+        setActionCompletions(p => { const n = { ...p }; delete n[id]; return n })
+      }
     }
   }
 
