@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { B } from '../brand.js'
 import { useStore } from '../utils/useStore.js'
-import { notifyContract, notifyFyxerIngest } from '../utils/notifications.js'
 
-// ── Shared helpers ────────────────────────────────────────────────────────────
+// ── Shared ────────────────────────────────────────────────────────────────────
 
 const CONTACT_STATUS_OPTIONS = ['New','Outreach Sent','Responded','Engaged','Nurture','Demo Scheduled','Demo Completed','Opportunity Created','Unresponsive']
 const CONTACT_STATUS_COLORS = {
@@ -12,36 +11,93 @@ const CONTACT_STATUS_COLORS = {
   'Opportunity Created': B.green, Unresponsive: 'rgba(255,255,255,0.25)',
 }
 const ARCHIVED_STATUSES = ['Demo Completed', 'Opportunity Created']
-
-function daysUntil(dateStr) {
-  if (!dateStr) return null
-  const diff = new Date(dateStr) - new Date()
-  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+const ACTION_CYCLE = ['Open', 'In Progress', 'Done', 'Deferred']
+const ACTION_CFG = {
+  Open:         { color: B.textSec,   bg: 'rgba(255,255,255,0.07)' },
+  'In Progress':{ color: B.amber,     bg: 'rgba(176,120,48,0.18)' },
+  Done:         { color: B.green,     bg: 'rgba(90,191,130,0.18)' },
+  Deferred:     { color: B.textTert,  bg: 'rgba(255,255,255,0.04)' },
 }
 
-function SectionHeader({ title, count, color, badge }) {
+function daysUntil(d) {
+  if (!d) return null
+  return Math.ceil((new Date(d) - new Date()) / 86400000)
+}
+
+function SectionHead({ title, count, color, extra }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
       <div style={{ width: 3, height: 18, background: color, borderRadius: 2 }} />
       <span style={{ fontFamily: 'Georgia,serif', fontStyle: 'italic', fontSize: 17, color: B.text }}>{title}</span>
       {count > 0 && <span style={{ background: `${color}20`, color, fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10 }}>{count}</span>}
-      {badge && <span style={{ fontSize: 10, color: B.textTert, fontStyle: 'italic' }}>{badge}</span>}
+      {extra}
     </div>
   )
 }
 
-// ── Section 1: Contracts ─────────────────────────────────────────────────────
+// ── Connection status banner ──────────────────────────────────────────────────
+
+function StatusBanner({ onTest }) {
+  const [testing, setTesting] = useState(false)
+  const [result, setResult] = useState(null)
+
+  const runTest = async () => {
+    setTesting(true)
+    setResult(null)
+    try {
+      const r = await fetch('/api/test-fyxer', { method: 'POST' })
+      const data = await r.json()
+      setResult(data)
+    } catch (err) {
+      setResult({ success: false, error: err.message })
+    } finally {
+      setTesting(false)
+      if (onTest) onTest()
+    }
+  }
+
+  return (
+    <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '14px 16px', marginBottom: 20 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: B.textSec, marginBottom: 6 }}>Pipeline status</div>
+      <div style={{ fontSize: 12, color: B.textTert, lineHeight: 1.6, marginBottom: 12 }}>
+        Meetings, Action Items, and Contracts are populated by Zapier forwarding Fyxer emails to{' '}
+        <code style={{ fontSize: 11, color: B.amber, background: 'rgba(176,120,48,0.12)', padding: '1px 5px', borderRadius: 3 }}>/api/ingest-fyxer</code>.
+        If Zapier is not yet configured, use the test button to verify the Notion connection and inject sample data.
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button onClick={runTest} disabled={testing}
+          style={{ background: testing ? 'rgba(255,255,255,0.05)' : 'rgba(176,120,48,0.14)', color: testing ? B.textTert : B.amber, border: `1px solid rgba(176,120,48,0.3)`, borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 500, cursor: testing ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+          {testing ? 'Testing…' : '🔬 Inject test data'}
+        </button>
+        {result && (
+          <div style={{ fontSize: 11, color: result.success ? B.green : '#e05a4a', fontWeight: 500 }}>
+            {result.success
+              ? `✓ Connected — injected ${result.injected?.meetings} meeting, ${result.injected?.actions} actions, ${result.injected?.contracts} contract`
+              : `✗ Failed: ${result.error}`}
+          </div>
+        )}
+      </div>
+      {result && !result.success && (
+        <div style={{ marginTop: 10, fontSize: 11, color: B.textTert, lineHeight: 1.6 }}>
+          {result.hint || 'Check Vercel → Settings → Environment Variables for NOTION_TOKEN and NOTION_DATABASE_ID. Then confirm the Livly Dashboard integration has access to your KV store database.'}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Contracts ─────────────────────────────────────────────────────────────────
 
 function ContractsSection({ contracts, onUpdate }) {
   const active = contracts.filter(c => c.status !== 'signed')
   const signed = contracts.filter(c => c.status === 'signed')
-
   return (
     <div style={{ marginBottom: 36 }}>
-      <SectionHeader title="Contracts Awaiting Signature" count={active.length} color={B.coral} badge={signed.length > 0 ? `${signed.length} signed` : ''} />
+      <SectionHead title="Contracts Awaiting Signature" count={active.length} color={B.coral}
+        extra={signed.length > 0 && <span style={{ fontSize: 10, color: B.textTert }}>· {signed.length} signed</span>} />
       {active.length === 0 && (
-        <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '20px 16px', color: B.textTert, fontSize: 13, fontStyle: 'italic' }}>
-          No contracts pending. New contracts will appear here when forwarded via Zapier.
+        <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '16px', color: B.textTert, fontSize: 13, fontStyle: 'italic' }}>
+          No pending contracts. Contracts appear here when Zapier forwards a signature-request email via /api/ingest-fyxer, or when you press "Inject test data" above.
         </div>
       )}
       {active.map(c => {
@@ -50,22 +106,22 @@ function ContractsSection({ contracts, onUpdate }) {
         return (
           <div key={c.id} style={{ background: B.surface, border: `1px solid ${urgent ? 'rgba(224,90,74,0.4)' : B.border}`, borderRadius: 8, padding: '14px 16px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: B.text, marginBottom: 4 }}>{c.documentName || 'Untitled contract'}</div>
-              <div style={{ fontSize: 11, color: B.textSec }}>{c.sender}</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: B.text, marginBottom: 3 }}>{c.documentName}</div>
+              {c.sender && <div style={{ fontSize: 11, color: B.textSec }}>{c.sender}</div>}
               {days !== null && (
                 <div style={{ fontSize: 11, color: urgent ? '#e05a4a' : B.textTert, marginTop: 3 }}>
-                  {days < 0 ? `⚠ Overdue by ${Math.abs(days)} day${Math.abs(days) !== 1 ? 's' : ''}` : days === 0 ? '⚠ Due today' : `Due in ${days} day${days !== 1 ? 's' : ''}`}
+                  {days < 0 ? `⚠ Overdue ${Math.abs(days)}d` : days === 0 ? '⚠ Due today' : `Due in ${days}d`}
                 </div>
               )}
             </div>
-            {c.executionLink && (
+            {c.executionLink && c.executionLink !== 'https://example.com/sign-here' && (
               <a href={c.executionLink} target="_blank" rel="noopener noreferrer"
-                style={{ background: B.coral, color: '#111', border: 'none', borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 500, textDecoration: 'none', whiteSpace: 'nowrap', cursor: 'pointer' }}>
+                style={{ background: B.coral, color: '#111', borderRadius: 6, padding: '7px 14px', fontSize: 12, fontWeight: 500, textDecoration: 'none' }}>
                 ✍ Sign
               </a>
             )}
             <button onClick={() => onUpdate(c.id, { status: 'signed' })}
-              style={{ background: 'rgba(90,191,130,0.12)', color: B.green, border: `1px solid rgba(90,191,130,0.25)`, borderRadius: 6, padding: '7px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+              style={{ background: 'rgba(90,191,130,0.12)', color: B.green, border: `1px solid rgba(90,191,130,0.25)`, borderRadius: 6, padding: '7px 12px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>
               Mark signed
             </button>
           </div>
@@ -75,18 +131,13 @@ function ContractsSection({ contracts, onUpdate }) {
   )
 }
 
-// ── Section 2: Meeting Action Items ─────────────────────────────────────────
-
-const ACTION_STATUS_CYCLE = ['Open', 'In Progress', 'Done', 'Deferred']
-const ACTION_STATUS_CFG = {
-  Open:       { color: B.textSec,   bg: 'rgba(255,255,255,0.07)' },
-  'In Progress':{ color: B.amber,   bg: 'rgba(176,120,48,0.18)' },
-  Done:       { color: B.green,    bg: 'rgba(90,191,130,0.18)' },
-  Deferred:   { color: B.textTert, bg: 'rgba(255,255,255,0.04)' },
-}
+// ── Action Items ──────────────────────────────────────────────────────────────
 
 function ActionItemsSection({ actions, meetings, onUpdate }) {
-  const [expandedMeetings, setExpandedMeetings] = useState({})
+  const [expanded, setExpanded] = useState({})
+  const [showAdd, setShowAdd] = useState(false)
+  const [newAction, setNewAction] = useState({ action: '', owner: 'David', meetingTitle: '', dueDate: '' })
+
   const byMeeting = {}
   actions.forEach(a => {
     const key = a.meetingTitle || 'General'
@@ -97,37 +148,69 @@ function ActionItemsSection({ actions, meetings, onUpdate }) {
 
   return (
     <div style={{ marginBottom: 36 }}>
-      <SectionHeader title="Meeting Action Items" count={active} color={B.amber} />
-      {actions.length === 0 && (
-        <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '20px 16px', color: B.textTert, fontSize: 13, fontStyle: 'italic' }}>
-          No action items yet. Items from Fyxer meeting summaries will appear here.
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <SectionHead title="Meeting Action Items" count={active} color={B.amber} />
+        <button onClick={() => setShowAdd(p => !p)}
+          style={{ background: 'rgba(176,120,48,0.12)', color: B.amber, border: `1px solid rgba(176,120,48,0.25)`, borderRadius: 5, padding: '5px 12px', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit' }}>
+          + Add manually
+        </button>
+      </div>
+
+      {showAdd && (
+        <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '14px 16px', marginBottom: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+            {[['action', 'Action *', 'text'], ['owner', 'Owner', 'text'], ['meetingTitle', 'Meeting title', 'text'], ['dueDate', 'Due date', 'date']].map(([k, label, type]) => (
+              <div key={k}>
+                <div style={{ fontSize: 10, color: B.textTert, marginBottom: 3 }}>{label}</div>
+                <input type={type} value={newAction[k]} onChange={e => setNewAction(p => ({ ...p, [k]: e.target.value }))} placeholder={label}
+                  style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: `1px solid ${B.border}`, borderRadius: 5, color: B.text, fontSize: 12, padding: '6px 8px', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+              </div>
+            ))}
+          </div>
+          <button onClick={() => {
+            if (!newAction.action.trim()) return
+            onUpdate('__add__', { ...newAction, id: `action-manual-${Date.now()}`, status: 'Open', receivedAt: new Date().toISOString() })
+            setNewAction({ action: '', owner: 'David', meetingTitle: '', dueDate: '' })
+            setShowAdd(false)
+          }}
+            style={{ background: B.amber, color: '#111', border: 'none', borderRadius: 6, padding: '7px 18px', fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>
+            Add action item
+          </button>
         </div>
       )}
-      {Object.entries(byMeeting).map(([meetingTitle, items]) => {
-        const expanded = expandedMeetings[meetingTitle]
-        const parentMeeting = meetings.find(m => m.title === meetingTitle)
+
+      {actions.length === 0 && (
+        <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '16px', color: B.textTert, fontSize: 13, fontStyle: 'italic' }}>
+          No action items yet. They appear here when Zapier forwards a Fyxer meeting email. Use "Add manually" or "Inject test data" above to test.
+        </div>
+      )}
+
+      {Object.entries(byMeeting).map(([title, items]) => {
+        const isExpanded = expanded[title] !== false // default open
+        const parent = meetings.find(m => m.title === title)
         return (
-          <div key={meetingTitle} style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
-            <div style={{ padding: '10px 14px', borderBottom: expanded ? `1px solid ${B.border}` : 'none', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => setExpandedMeetings(p => ({ ...p, [meetingTitle]: !p[meetingTitle] }))}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: B.textTert, transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }}>
+          <div key={title} style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
+            <div style={{ padding: '10px 14px', borderBottom: isExpanded ? `1px solid ${B.border}` : 'none', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+              onClick={() => setExpanded(p => ({ ...p, [title]: !isExpanded }))}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: B.textTert, transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }}>
                 <path d="M9 18l6-6-6-6" />
               </svg>
-              <span style={{ fontSize: 12, fontWeight: 500, color: B.text }}>{meetingTitle}</span>
-              <span style={{ fontSize: 10, color: B.textTert, marginLeft: 'auto' }}>{items.length} items</span>
+              <span style={{ fontSize: 12, fontWeight: 500, color: B.text, flex: 1 }}>{title}</span>
+              <span style={{ fontSize: 10, color: B.textTert }}>{items.length} items</span>
             </div>
-            {expanded && (
+            {isExpanded && (
               <div>
-                {parentMeeting && (
+                {parent?.summary && (
                   <div style={{ padding: '8px 14px', background: 'rgba(255,255,255,0.02)', borderBottom: `1px solid ${B.border}` }}>
-                    <div style={{ fontSize: 10, color: B.textTert, marginBottom: 3 }}>{parentMeeting.date} · {parentMeeting.attendees?.length} attendees</div>
-                    <div style={{ fontSize: 11, color: B.textSec, lineHeight: 1.5 }}>{parentMeeting.summary}</div>
+                    <div style={{ fontSize: 10, color: B.textTert, marginBottom: 3 }}>{parent.date} · {parent.attendees?.join(', ')}</div>
+                    <div style={{ fontSize: 11, color: B.textSec, lineHeight: 1.5 }}>{parent.summary.split('\n').slice(0, 3).join(' ')}</div>
                   </div>
                 )}
                 {items.map(item => {
-                  const cfg = ACTION_STATUS_CFG[item.status || 'Open']
+                  const cfg = ACTION_CFG[item.status || 'Open']
                   const cycle = () => {
-                    const idx = ACTION_STATUS_CYCLE.indexOf(item.status || 'Open')
-                    onUpdate(item.id, { status: ACTION_STATUS_CYCLE[(idx + 1) % ACTION_STATUS_CYCLE.length] })
+                    const idx = ACTION_CYCLE.indexOf(item.status || 'Open')
+                    onUpdate(item.id, { ...item, status: ACTION_CYCLE[(idx + 1) % ACTION_CYCLE.length] })
                   }
                   return (
                     <div key={item.id} style={{ padding: '10px 14px', borderBottom: `1px solid ${B.border}`, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -138,10 +221,10 @@ function ActionItemsSection({ actions, meetings, onUpdate }) {
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 12, color: item.status === 'Done' ? B.textTert : B.text, textDecoration: item.status === 'Done' ? 'line-through' : 'none', lineHeight: 1.4 }}>{item.action}</div>
                         {(item.owner || item.dueDate) && (
-                          <div style={{ fontSize: 10, color: B.textTert, marginTop: 3 }}>
+                          <div style={{ fontSize: 10, color: B.textTert, marginTop: 2 }}>
                             {item.owner && <span>{item.owner}</span>}
                             {item.owner && item.dueDate && <span> · </span>}
-                            {item.dueDate && <span>Due {new Date(item.dueDate).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>}
+                            {item.dueDate && <span>{new Date(item.dueDate).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>}
                           </div>
                         )}
                       </div>
@@ -157,15 +240,15 @@ function ActionItemsSection({ actions, meetings, onUpdate }) {
   )
 }
 
-// ── Section 3: Meeting Summaries ─────────────────────────────────────────────
+// ── Meeting Summaries ─────────────────────────────────────────────────────────
 
 function extractCompanies(attendees = []) {
   const domains = new Set()
   attendees.forEach(a => {
-    const match = a.match(/<(.+)>/) || a.match(/[\w.+-]+@([\w.]+)/)
-    const email = match ? (match[1] || match[0]) : a
+    const m = a.match(/<(.+)>/) || a.match(/[\w.+-]+@([\w.]+)/)
+    const email = m ? (m[1] || m[0]) : a
     const domain = email.split('@')[1]?.toLowerCase()
-    if (domain && !domain.includes('livly') && !domain.includes('gmail') && !domain.includes('yahoo') && !domain.includes('hotmail')) {
+    if (domain && !['livly.io', 'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com'].some(x => domain.includes(x))) {
       domains.add(domain)
     }
   })
@@ -176,49 +259,40 @@ function MeetingSummariesSection({ meetings }) {
   const [expanded, setExpanded] = useState({})
   return (
     <div style={{ marginBottom: 36 }}>
-      <SectionHeader title="Meeting Summaries" count={meetings.length} color={B.blue} />
+      <SectionHead title="Meeting Summaries" count={meetings.length} color={B.blue} />
       {meetings.length === 0 && (
-        <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '20px 16px', color: B.textTert, fontSize: 13, fontStyle: 'italic' }}>
-          No meeting summaries yet. Forward Fyxer emails via Zapier to populate this section.
+        <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '16px', color: B.textTert, fontSize: 13, fontStyle: 'italic' }}>
+          No meeting summaries yet. Use "Inject test data" above to verify the pipeline, or configure Zapier to forward Fyxer emails to /api/ingest-fyxer.
         </div>
       )}
-      {[...meetings].reverse().map(m => {
-        const companies = extractCompanies(m.attendees)
+      {[...meetings].map(m => {
+        const companies = extractCompanies(m.attendees || [])
         const isExpanded = expanded[m.id]
         return (
           <div key={m.id} style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
-            <div style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 12 }} onClick={() => setExpanded(p => ({ ...p, [m.id]: !p[m.id] }))}>
+            <div style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', alignItems: 'flex-start', gap: 12 }}
+              onClick={() => setExpanded(p => ({ ...p, [m.id]: !p[m.id] }))}>
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: B.text }}>{m.title || 'Meeting summary'}</span>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: B.text }}>{m.title}</span>
                   <span style={{ fontSize: 10, color: B.textTert }}>{m.date}</span>
                 </div>
-                {companies.length > 0 && (
-                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                    {companies.map(d => (
-                      <span key={d} style={{ background: B.blueLight || 'rgba(74,144,217,0.14)', color: B.blue, fontSize: 9, padding: '2px 7px', borderRadius: 10, fontWeight: 500 }}>{d}</span>
-                    ))}
-                  </div>
-                )}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {(m.attendees || []).map((a, i) => (
+                    <span key={i} style={{ fontSize: 10, color: B.textSec }}>{a}{i < (m.attendees.length - 1) ? ' ·' : ''}</span>
+                  ))}
+                  {companies.map(d => (
+                    <span key={d} style={{ background: 'rgba(74,144,217,0.14)', color: B.blue, fontSize: 9, padding: '2px 7px', borderRadius: 10, fontWeight: 500 }}>{d}</span>
+                  ))}
+                </div>
               </div>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: B.textTert, transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0, marginTop: 2 }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: B.textTert, transform: isExpanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0, marginTop: 3 }}>
                 <path d="M6 9l6 6 6-6" />
               </svg>
             </div>
-            {isExpanded && (
+            {isExpanded && m.summary && (
               <div style={{ borderTop: `1px solid ${B.border}`, padding: '12px 14px' }}>
-                {m.attendees?.length > 0 && (
-                  <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: B.textTert, marginBottom: 5 }}>Attendees</div>
-                    {m.attendees.map((a, i) => <div key={i} style={{ fontSize: 11, color: B.textSec, marginBottom: 2 }}>{a}</div>)}
-                  </div>
-                )}
-                {m.summary && (
-                  <div>
-                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: B.textTert, marginBottom: 5 }}>Summary</div>
-                    <div style={{ fontSize: 12, color: B.textSec, lineHeight: 1.65 }}>{m.summary}</div>
-                  </div>
-                )}
+                <pre style={{ fontSize: 12, color: B.textSec, lineHeight: 1.65, whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{m.summary}</pre>
               </div>
             )}
           </div>
@@ -228,120 +302,107 @@ function MeetingSummariesSection({ meetings }) {
   )
 }
 
-// ── Section 4: Conference Follow-Ups ─────────────────────────────────────────
+// ── Conference Follow-Ups ─────────────────────────────────────────────────────
 
 function ConferenceDrawer({ contact, onClose, onStatusChange }) {
-  const [newStatus, setNewStatus] = useState(contact.contactStatus)
-  const save = () => { onStatusChange(contact.id, newStatus); onClose() }
-
+  const [status, setStatus] = useState(contact.contactStatus)
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex' }} onClick={onClose}>
       <div style={{ flex: 1, background: 'rgba(0,0,0,0.5)' }} />
-      <div style={{ width: 400, background: '#141416', borderLeft: `1px solid ${B.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
-        {/* Drawer header */}
+      <div style={{ width: 420, background: '#141416', borderLeft: `1px solid ${B.border}`, display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '16px 20px', borderBottom: `1px solid ${B.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div>
             <div style={{ fontFamily: 'Georgia,serif', fontSize: 16, color: B.text }}>{contact.fullName}</div>
-            <div style={{ fontSize: 11, color: B.textSec, marginTop: 2 }}>{contact.title} · {contact.companyName}</div>
+            <div style={{ fontSize: 11, color: B.textSec, marginTop: 2 }}>{contact.title}{contact.companyName ? ` · ${contact.companyName}` : ''}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: B.textTert, fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
         </div>
-
-        {/* Drawer body */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-          {/* Status selector */}
-          <div style={{ marginBottom: 18 }}>
+          <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: B.textTert, marginBottom: 8 }}>Contact status</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
               {CONTACT_STATUS_OPTIONS.map(s => (
-                <button key={s} onClick={() => setNewStatus(s)}
-                  style={{ background: newStatus === s ? `${CONTACT_STATUS_COLORS[s] || B.textSec}22` : 'rgba(255,255,255,0.05)', color: newStatus === s ? (CONTACT_STATUS_COLORS[s] || B.textSec) : B.textTert, border: `1px solid ${newStatus === s ? (CONTACT_STATUS_COLORS[s] || B.textSec) + '50' : B.border}`, borderRadius: 5, padding: '4px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: newStatus === s ? 500 : 400 }}>
+                <button key={s} onClick={() => setStatus(s)}
+                  style={{ background: status === s ? `${CONTACT_STATUS_COLORS[s] || B.textSec}22` : 'rgba(255,255,255,0.05)', color: status === s ? (CONTACT_STATUS_COLORS[s] || B.textSec) : B.textTert, border: `1px solid ${status === s ? (CONTACT_STATUS_COLORS[s] || B.textSec) + '50' : B.border}`, borderRadius: 5, padding: '4px 9px', fontSize: 11, cursor: 'pointer', fontFamily: 'inherit', fontWeight: status === s ? 500 : 400 }}>
                   {s}
                 </button>
               ))}
             </div>
           </div>
-
-          {/* Contact details */}
-          {[['Email', contact.email], ['Title', contact.title], ['Company', contact.companyName]].map(([label, value]) => value ? (
+          {[['Email', contact.email], ['Title', contact.title], ['Company', contact.companyName]].map(([label, val]) => val ? (
             <div key={label} style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: B.textTert, marginBottom: 4 }}>{label}</div>
-              <div style={{ fontSize: 13, color: B.text, userSelect: 'all', cursor: 'text' }}>{value}</div>
+              <div style={{ fontSize: 13, color: B.text, userSelect: 'all' }}>{val}</div>
             </div>
           ) : null)}
-
-          {/* Conference notes */}
           {contact.conferenceNotes && (
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: B.textTert, marginBottom: 4 }}>Conference notes</div>
-              <div style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${B.border}`, borderRadius: 6, padding: '10px 12px', fontSize: 12, color: B.textSec, lineHeight: 1.6, userSelect: 'all', cursor: 'text', whiteSpace: 'pre-wrap' }}>
-                {contact.conferenceNotes}
-              </div>
+              <div style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${B.border}`, borderRadius: 6, padding: '10px 12px', fontSize: 12, color: B.textSec, lineHeight: 1.6, userSelect: 'all', whiteSpace: 'pre-wrap' }}>{contact.conferenceNotes}</div>
             </div>
           )}
-
-          {/* Personal notes */}
           {contact.personalNotes && (
-            <div style={{ marginBottom: 14 }}>
+            <div>
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: B.textTert, marginBottom: 4 }}>Personal notes</div>
-              <div style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${B.border}`, borderRadius: 6, padding: '10px 12px', fontSize: 12, color: B.textSec, lineHeight: 1.6, userSelect: 'all', cursor: 'text', whiteSpace: 'pre-wrap' }}>
-                {contact.personalNotes}
-              </div>
+              <div style={{ background: 'rgba(255,255,255,0.04)', border: `1px solid ${B.border}`, borderRadius: 6, padding: '10px 12px', fontSize: 12, color: B.textSec, lineHeight: 1.6, userSelect: 'all', whiteSpace: 'pre-wrap' }}>{contact.personalNotes}</div>
             </div>
           )}
         </div>
-
-        {/* Drawer footer */}
         <div style={{ padding: '12px 20px', borderTop: `1px solid ${B.border}`, display: 'flex', gap: 8 }}>
           <button onClick={onClose} style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: `1px solid ${B.border}`, borderRadius: 6, color: B.textSec, fontSize: 13, padding: '9px', cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
-          <button onClick={save} style={{ flex: 2, background: B.green, border: 'none', borderRadius: 6, color: '#111', fontSize: 13, fontWeight: 500, padding: '9px', cursor: 'pointer', fontFamily: 'inherit' }}>Save status</button>
+          <button onClick={() => { onStatusChange(contact.id, status); onClose() }}
+            style={{ flex: 2, background: B.green, border: 'none', borderRadius: 6, color: '#111', fontSize: 13, fontWeight: 500, padding: '9px', cursor: 'pointer', fontFamily: 'inherit' }}>Save status</button>
         </div>
       </div>
     </div>
   )
 }
 
-function ConferenceSection({ contacts, archivedContacts, onStatusChange, onPull, loading }) {
+function ConferenceSection({ contacts, archived, onStatusChange, onSync, loading, error }) {
   const [showArchived, setShowArchived] = useState(false)
-  const [drawerContact, setDrawerContact] = useState(null)
-  const displayContacts = showArchived ? archivedContacts : contacts
-
-  const statusBadge = (status) => {
-    const color = CONTACT_STATUS_COLORS[status] || B.textSec
-    return (
-      <span style={{ background: `${color}20`, color, fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10 }}>{status}</span>
-    )
-  }
+  const [drawer, setDrawer] = useState(null)
+  const display = showArchived ? archived : contacts
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <SectionHeader title="Conference Follow-Ups" count={contacts.length} color={B.green} badge={archivedContacts.length > 0 ? `${archivedContacts.length} archived` : ''} />
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+        <SectionHead title="Conference Follow-Ups" count={contacts.length} color={B.green}
+          extra={archived.length > 0 && <span style={{ fontSize: 10, color: B.textTert }}>· {archived.length} archived</span>} />
+        <div style={{ display: 'flex', gap: 7, alignItems: 'center' }}>
           <button onClick={() => setShowArchived(p => !p)}
             style={{ background: 'rgba(255,255,255,0.06)', border: `1px solid ${B.border}`, borderRadius: 5, color: B.textSec, fontSize: 11, padding: '5px 12px', cursor: 'pointer', fontFamily: 'inherit' }}>
-            {showArchived ? 'Active' : 'Archived'}
+            {showArchived ? '← Active' : 'Archived →'}
           </button>
-          <button onClick={onPull} disabled={loading}
+          <button onClick={onSync} disabled={loading}
             style={{ background: 'rgba(90,191,130,0.1)', color: loading ? B.textTert : B.green, border: `1px solid rgba(90,191,130,0.25)`, borderRadius: 5, fontSize: 11, padding: '5px 12px', cursor: loading ? 'default' : 'pointer', fontFamily: 'inherit' }}>
             {loading ? '···' : '↓ Sync'}
           </button>
         </div>
       </div>
 
-      {displayContacts.length === 0 && (
-        <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '20px 16px', color: B.textTert, fontSize: 13, fontStyle: 'italic' }}>
-          {showArchived ? 'No archived contacts yet.' : 'No active conference contacts. Use the Sync button or the global Pull to load from Notion.'}
+      {error && (
+        <div style={{ background: 'rgba(224,90,74,0.1)', border: '1px solid rgba(224,90,74,0.3)', borderRadius: 7, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: '#e05a4a' }}>
+          Sync error: {error}. Check that the Livly Dashboard Notion integration has access to the Conference Follow-Up database.
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {displayContacts.map(c => (
-          <div key={c.id} style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '11px 14px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} onClick={() => setDrawerContact(c)}>
+      {display.length === 0 && (
+        <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '16px', color: B.textTert, fontSize: 13, fontStyle: 'italic' }}>
+          {showArchived
+            ? 'No archived contacts yet.'
+            : 'No conference contacts. Press ↓ Sync or use the global Pull button in the sidebar.'}
+        </div>
+      )}
+
+      {display.map(c => {
+        const color = CONTACT_STATUS_COLORS[c.contactStatus] || B.textSec
+        return (
+          <div key={c.id} style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 8, padding: '11px 14px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}
+            onClick={() => setDrawer(c)}>
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 3 }}>
                 <span style={{ fontSize: 13, fontWeight: 500, color: B.text }}>{c.fullName}</span>
-                {statusBadge(c.contactStatus)}
+                <span style={{ background: `${color}20`, color, fontSize: 10, fontWeight: 500, padding: '2px 8px', borderRadius: 10 }}>{c.contactStatus}</span>
               </div>
               <div style={{ fontSize: 11, color: B.textSec }}>{c.title}{c.companyName ? ` · ${c.companyName}` : ''}</div>
               {c.conferenceNotes && (
@@ -352,45 +413,64 @@ function ConferenceSection({ contacts, archivedContacts, onStatusChange, onPull,
               <path d="M9 18l6-6-6-6" />
             </svg>
           </div>
-        ))}
-      </div>
+        )
+      })}
 
-      {drawerContact && (
-        <ConferenceDrawer contact={drawerContact} onClose={() => setDrawerContact(null)} onStatusChange={onStatusChange} />
+      {drawer && (
+        <ConferenceDrawer contact={drawer} onClose={() => setDrawer(null)}
+          onStatusChange={(id, status) => {
+            onStatusChange(id, status)
+            setDrawer(null)
+          }} />
       )}
     </div>
   )
 }
 
-// ── Main FyxerIntel ───────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function FyxerIntel() {
   const [meetings,  setMeetings]  = useStore('livly-fyxer-meetings',  [])
-  const [actions,   setActions]   = useStore('livly-fyxer-actions',   [])
+  const [actions,   setActionsRaw] = useStore('livly-fyxer-actions',  [])
   const [contracts, setContracts] = useStore('livly-fyxer-contracts', [])
   const [confActive,   setConfActive]   = useState([])
   const [confArchived, setConfArchived] = useState([])
-  const [confLoading, setConfLoading] = useState(false)
-  const [activeSection, setActiveSection] = useState('all')
+  const [confLoading, setConfLoading]   = useState(false)
+  const [confError, setConfError]       = useState(null)
+  const [section, setSection]           = useState('all')
 
-  const loadConference = useCallback(async () => {
+  // Ensure arrays even if Notion returns null/undefined
+  const safeActions   = Array.isArray(actions)   ? actions   : []
+  const safeMeetings  = Array.isArray(meetings)  ? meetings  : []
+  const safeContracts = Array.isArray(contracts) ? contracts : []
+
+  const setActions = useCallback((updater) => {
+    setActionsRaw(typeof updater === 'function' ? updater(safeActions) : updater)
+  }, [safeActions, setActionsRaw])
+
+  const syncConference = useCallback(async () => {
     setConfLoading(true)
+    setConfError(null)
     try {
-      const [active, archived] = await Promise.all([
+      const [ar, aa] = await Promise.all([
         fetch('/api/notion-conference?archived=false').then(r => r.json()),
         fetch('/api/notion-conference?archived=true').then(r => r.json()),
       ])
-      if (active.contacts) { setConfActive(active.contacts); localStorage.setItem('livly-notion-conference', JSON.stringify(active.contacts)) }
-      if (archived.contacts) setConfArchived(archived.contacts)
-    } catch (err) { console.error('Conference load failed:', err) }
-    finally { setConfLoading(false) }
+      if (ar.error) throw new Error(ar.error)
+      if (ar.contacts) { setConfActive(ar.contacts); localStorage.setItem('livly-notion-conference', JSON.stringify(ar.contacts)) }
+      if (aa.contacts) setConfArchived(aa.contacts)
+    } catch (err) {
+      setConfError(err.message)
+    } finally {
+      setConfLoading(false)
+    }
   }, [])
 
   useEffect(() => {
-    // Load from cache first
+    // Hydrate conference from cache
     try {
-      const cached = localStorage.getItem('livly-notion-conference')
-      if (cached) setConfActive(JSON.parse(cached))
+      const c = localStorage.getItem('livly-notion-conference')
+      if (c) setConfActive(JSON.parse(c))
     } catch {}
     // Listen for global pull
     const handler = e => setConfActive(e.detail)
@@ -398,72 +478,79 @@ export default function FyxerIntel() {
     return () => window.removeEventListener('livly-conference-updated', handler)
   }, [])
 
-  const handleContractUpdate = (id, updates) => {
-    setContracts(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c))
-  }
+  const handleContractUpdate = (id, updates) =>
+    setContracts(prev => (Array.isArray(prev) ? prev : []).map(c => c.id === id ? { ...c, ...updates } : c))
 
   const handleActionUpdate = (id, updates) => {
-    setActions(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a))
+    if (id === '__add__') {
+      setActions(prev => [updates, ...(Array.isArray(prev) ? prev : [])])
+    } else {
+      setActions(prev => (Array.isArray(prev) ? prev : []).map(a => a.id === id ? { ...a, ...updates } : a))
+    }
   }
 
-  const handleConferenceStatusChange = async (pageId, newStatus) => {
+  const handleConfStatusChange = async (pageId, newStatus) => {
     setConfActive(prev => prev.map(c => c.id === pageId ? { ...c, contactStatus: newStatus } : c))
+    if (ARCHIVED_STATUSES.includes(newStatus)) {
+      const contact = confActive.find(c => c.id === pageId)
+      if (contact) {
+        setConfActive(prev => prev.filter(c => c.id !== pageId))
+        setConfArchived(prev => [...prev, { ...contact, contactStatus: newStatus }])
+      }
+    }
     try {
       await fetch('/api/notion-conference', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pageId, contactStatus: newStatus }),
       })
-      // Move to archived if status is archive-worthy
-      if (ARCHIVED_STATUSES.includes(newStatus)) {
-        const contact = confActive.find(c => c.id === pageId)
-        if (contact) {
-          setConfActive(prev => prev.filter(c => c.id !== pageId))
-          setConfArchived(prev => [...prev, { ...contact, contactStatus: newStatus }])
-        }
-      }
-    } catch (err) { console.error('Status push failed:', err) }
+    } catch {}
   }
 
+  const handleTestComplete = useCallback(() => {
+    // After test data injection, re-read from Notion KV via useStore
+    // useStore will re-hydrate on next mount — trigger by clearing localStorage keys
+    localStorage.removeItem('livly-fyxer-meetings')
+    localStorage.removeItem('livly-fyxer-actions')
+    localStorage.removeItem('livly-fyxer-contracts')
+    window.location.reload()
+  }, [])
+
+  const total = safeContracts.filter(c => c.status !== 'signed').length
+    + safeActions.filter(a => a.status !== 'Done' && a.status !== 'Deferred').length
+    + confActive.length
+
   const SECTIONS = ['all', 'contracts', 'actions', 'meetings', 'conference']
-  const total = contracts.filter(c => c.status !== 'signed').length + actions.filter(a => a.status !== 'Done' && a.status !== 'Deferred').length + confActive.length
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: B.amber, marginBottom: 4 }}>Zapier · Notion · Outlook</div>
-          <h1 style={{ fontFamily: 'Georgia,serif', fontStyle: 'italic', fontSize: 26, fontWeight: 'normal', color: B.text, marginBottom: 2 }}>Fyxer Intel</h1>
-          <div style={{ fontSize: 13, color: B.textSec }}>{total} active items across 4 sources</div>
-        </div>
-        <div style={{ background: B.surface, border: `1px solid ${B.border}`, borderRadius: 7, padding: '10px 14px' }}>
-          <div style={{ fontSize: 9, color: B.textTert, marginBottom: 4 }}>Zapier webhook endpoint</div>
-          <code style={{ fontSize: 11, color: B.amber }}>POST /api/ingest-fyxer</code>
-          <div style={{ fontSize: 9, color: B.textTert, marginTop: 3 }}>Add header: X-Zapier-Secret (optional)</div>
-        </div>
+    <div style={{ padding: 24, maxWidth: 960 }}>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: B.amber, marginBottom: 4 }}>Zapier · Notion · Outlook</div>
+        <h1 style={{ fontFamily: 'Georgia,serif', fontStyle: 'italic', fontSize: 26, fontWeight: 'normal', color: B.text, marginBottom: 2 }}>Fyxer Intel</h1>
+        <div style={{ fontSize: 13, color: B.textSec }}>{total} active items</div>
       </div>
 
-      {/* Section filter */}
+      <StatusBanner onTest={handleTestComplete} />
+
       <div style={{ display: 'flex', gap: 6, marginBottom: 24, flexWrap: 'wrap' }}>
         {SECTIONS.map(s => (
-          <button key={s} onClick={() => setActiveSection(s)}
-            style={{ background: activeSection === s ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)', color: activeSection === s ? B.text : B.textSec, border: 'none', borderRadius: 5, padding: '5px 12px', fontSize: 11, fontWeight: activeSection === s ? 500 : 400, cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize' }}>
+          <button key={s} onClick={() => setSection(s)}
+            style={{ background: section === s ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.05)', color: section === s ? B.text : B.textSec, border: 'none', borderRadius: 5, padding: '5px 12px', fontSize: 11, fontWeight: section === s ? 500 : 400, cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize' }}>
             {s === 'all' ? 'All sections' : s}
           </button>
         ))}
       </div>
 
-      {(activeSection === 'all' || activeSection === 'contracts') && (
-        <ContractsSection contracts={contracts} onUpdate={handleContractUpdate} />
+      {(section === 'all' || section === 'contracts') && (
+        <ContractsSection contracts={safeContracts} onUpdate={handleContractUpdate} />
       )}
-      {(activeSection === 'all' || activeSection === 'actions') && (
-        <ActionItemsSection actions={actions} meetings={meetings} onUpdate={handleActionUpdate} />
+      {(section === 'all' || section === 'actions') && (
+        <ActionItemsSection actions={safeActions} meetings={safeMeetings} onUpdate={handleActionUpdate} />
       )}
-      {(activeSection === 'all' || activeSection === 'meetings') && (
-        <MeetingSummariesSection meetings={meetings} />
+      {(section === 'all' || section === 'meetings') && (
+        <MeetingSummariesSection meetings={safeMeetings} />
       )}
-      {(activeSection === 'all' || activeSection === 'conference') && (
-        <ConferenceSection contacts={confActive} archivedContacts={confArchived} onStatusChange={handleConferenceStatusChange} onPull={loadConference} loading={confLoading} />
+      {(section === 'all' || section === 'conference') && (
+        <ConferenceSection contacts={confActive} archived={confArchived} onStatusChange={handleConfStatusChange} onSync={syncConference} loading={confLoading} error={confError} />
       )}
     </div>
   )
