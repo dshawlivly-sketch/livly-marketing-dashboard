@@ -324,18 +324,15 @@ export default function WeeklyRecap() {
     })
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      const response = await fetch('/api/generate-recap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 1000,
-          messages: [{ role: 'user', content: prompt }],
-        }),
+        body: JSON.stringify({ prompt }),
       })
+
       const data = await response.json()
-      if (data.error) throw new Error(data.error.message)
-      const text = data.content?.find(b => b.type === 'text')?.text || ''
+      if (!response.ok) throw new Error(data.error || 'Generation failed')
+      const text = data.text
       if (!text) throw new Error('No content returned')
 
       const result = {
