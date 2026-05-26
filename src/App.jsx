@@ -11,6 +11,7 @@ import AssetLibrary from './components/AssetLibrary.jsx'
 import ActionCenter from './components/ActionCenter.jsx'
 import FyxerIntel from './components/FyxerIntel.jsx'
 import WeeklyRecap from './components/WeeklyRecap.jsx'
+import AgentDashboard from './components/AgentDashboard.jsx'
 
 
 const NAV = [
@@ -24,13 +25,14 @@ const NAV = [
   { id: 'apollo',  label: 'Apollo Pipeline',  path: 'M13 10V3L4 14h7v7l9-11h-7z', accent: B.amber },
   { id: 'prompts', label: 'Prompt Library',   path: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
   { id: 'assets',  label: 'Asset Library',    path: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
+  { id: 'agents',  label: 'Agent Intelligence', path: 'M13 10V3L4 14h7v7l9-11h-7z', accent: '#F07B6B' },
 ]
 
 const COMPONENTS = {
   command: CommandCenter, action: ActionCenter, fyxer: FyxerIntel,
   tracker: Q2Tracker, calendar: ContentCalendar, linkedin: LinkedInPerformance,
   apollo: ApolloPipeline, prompts: PromptLibrary, assets: AssetLibrary,
-  recap: WeeklyRecap,
+  recap: WeeklyRecap, agents: AgentDashboard,
 }
 
 function ToastContainer({ toasts, onDismiss }) {
@@ -130,7 +132,7 @@ export default function App() {
 
         {/* Logo */}
         <div style={{ height: 58, display: 'flex', alignItems: 'center', padding: '0 12px', borderBottom: `1px solid ${B.border}`, gap: 9, flexShrink: 0 }}>
-          <img src="/livly-logo.png" alt="Livly" style={{ width: 28, height: 28, flexShrink: 0, borderRadius: 6, objectFit: 'cover' }} />
+          <img src="/livly-logo.png" alt="Livly" style={{ width: 28, height: 28, flexShrink: 0, borderRadius: 6, objectFit: 'cover', background: '#F07B6B', display: 'block' }} />
           {sidebarOpen && (
             <div>
               <div style={{ fontFamily: "'Fraunces', Georgia, serif", fontSize: 13, fontWeight: 600, color: B.text, letterSpacing: '0.01em', lineHeight: 1.1 }}>Livly</div>

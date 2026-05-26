@@ -6,9 +6,6 @@
 //   subject:  email subject line  (e.g. "Dom x Dave Sync")
 //   body:     plain-text email body (full Fyxer email body)
 //   from:     sender email address (optional, used for contracts)
-//
-// Auto-detects email type and handles both meeting summary + action
-// items from a single email. One Zap handles everything.
 
 const NOTION_VERSION = '2022-06-28'
 const NOTION_API = 'https://api.notion.com/v1'
@@ -73,7 +70,6 @@ async function writeKV(key, value, token, dbId) {
 // ── Parsers ───────────────────────────────────────────────────────────────────
 
 function parseMeetingDate(body) {
-  // Matches Fyxer format: "Tuesday, April 21, 2026 • 60 minutes"
   const match = body.match(
     /(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+([A-Z][a-z]+ \d{1,2},\s+\d{4})/i
   )
@@ -85,8 +81,6 @@ function parseMeetingDate(body) {
 }
 
 function parseAttendees(subject) {
-  // "Dom x Dave Sync" → ["Dom", "Dave"]
-  // "Sarah x Dave x John Sync" → ["Sarah", "Dave", "John"]
   const cleaned = subject.replace(/\s+sync\s*$/i, '').trim()
   return cleaned.split(/\s+x\s+/i).map(n => n.trim()).filter(Boolean)
 }
@@ -100,22 +94,25 @@ function parseSections(body) {
     const trimmed = line.trim()
     if (!trimmed) continue
 
-    // Skip Fyxer navigation links
+    // Skip Fyxer navigation links and footer lines
     if (/View\s+(recording|transcript|meeting|chat)/i.test(trimmed)) continue
     if (trimmed.endsWith('→')) continue
+    if (/^https?:\/\//i.test(trimmed)) continue
 
     const isDateLine = /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/i.test(trimmed)
-    const isBullet = trimmed.startsWith('*')
 
-    if (!isBullet && !isDateLine && trimmed.length > 0 && trimmed.length < 100) {
+    // Detect bullet formats: *, •, -, and numbered lists (1. 2. 3.)
+    const isBullet = /^[\*•\-]\s/.test(trimmed) || /^\d+\.\s/.test(trimmed)
+
+    if (!isBullet && !isDateLine && trimmed.length > 0 && trimmed.length < 120) {
       // New section header
       currentSection = { header: trimmed, bullets: [] }
       sections.push(currentSection)
     } else if (isBullet && currentSection) {
-      // Measure indent level (sub-bullets have leading whitespace before the *)
       const indentMatch = line.match(/^(\s*)/)
       const indent = indentMatch ? indentMatch[1].length : 0
-      const bulletText = trimmed.replace(/^\*+\s*/, '').trim()
+      // Strip bullet marker: *, •, -, or N.
+      const bulletText = trimmed.replace(/^[\*•\-]\s+/, '').replace(/^\d+\.\s+/, '').trim()
       if (bulletText) {
         currentSection.bullets.push({ text: bulletText, indent })
       }
@@ -125,16 +122,30 @@ function parseSections(body) {
   return sections
 }
 
-function extractActionItems(sections, meetingTitle, meetingDate) {
-  const nextSteps = sections.find(s => /next\s+steps/i.test(s.header))
-  if (!nextSteps) return []
+// Expanded: matches "Next Steps", "Action Items", "Tasks", "Follow-up",
+// "Follow up", "To-do", "To do", "Takeaways", "Decisions"
+const ACTION_SECTION_RE = /next\s+steps?|action\s+items?|tasks?|follow[\s-]up|to[\s-]do|takeaways?|decisions?/i
 
-  return nextSteps.bullets
-    .filter(b => b.indent < 4) // top-level only, skip sub-bullets
-    .map(b => {
+function extractActionItems(sections, meetingTitle, meetingDate) {
+  // Find ALL sections that look like they contain action items
+  const actionSections = sections.filter(s => ACTION_SECTION_RE.test(s.header))
+
+  // Fallback: if no dedicated action section found, scan all sections for
+  // bullets containing owner: action patterns
+  const targetSections = actionSections.length > 0 ? actionSections : sections
+
+  const items = []
+  for (const section of targetSections) {
+    for (const b of section.bullets) {
+      if (b.indent > 6) continue // skip deep sub-bullets
+
       // Format: "David: Action text" or "Dom: Action text"
       const ownerMatch = b.text.match(/^([A-Z][a-z]+(?:\s[A-Z][a-z]+)?)\s*:\s*(.+)/)
-      return {
+
+      // Only include unowned bullets if this is a dedicated action section
+      if (!ownerMatch && actionSections.length === 0) continue
+
+      items.push({
         id: `action-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         type: 'action-item',
         meetingTitle,
@@ -144,14 +155,16 @@ function extractActionItems(sections, meetingTitle, meetingDate) {
         dueDate: '',
         status:  'Open',
         receivedAt: new Date().toISOString(),
-      }
-    })
-    .filter(a => a.action.length > 0)
+      })
+    }
+  }
+
+  return items.filter(a => a.action.length > 3) // filter noise
 }
 
 function buildSummary(sections) {
   return sections
-    .filter(s => !/next\s+steps/i.test(s.header))
+    .filter(s => !ACTION_SECTION_RE.test(s.header))
     .map(s => {
       const bullets = s.bullets.map(b => {
         const prefix = b.indent > 3 ? '    • ' : '  • '
@@ -168,7 +181,6 @@ function detectContract(subject, body) {
 }
 
 function extractExecutionLink(body) {
-  // Find a URL near sign-related words
   const lines = body.split('\n')
   for (const line of lines) {
     if (/sign|review|execute/i.test(line)) {
@@ -176,7 +188,6 @@ function extractExecutionLink(body) {
       if (m) return m[0]
     }
   }
-  // Fallback: any URL in body
   const m = body.match(/https?:\/\/[^\s<>"]{20,}/)
   return m ? m[0] : ''
 }
