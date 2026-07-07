@@ -1,8 +1,11 @@
-# ⚡ Harness — Visual AI Console
+# ⚡ Agent 9 — Visual AI Console
 
 One dashboard to drive **Claude (Anthropic)**, **OpenAI**, **Google Gemini**, and
 **[OpenDesign](https://github.com/nexu-io/open-design)** — with a prompt console,
 reusable skills, and a live agent status board.
+
+📗 **[Getting Started Guide](docs/GETTING-STARTED.md)** — zero to deployed in ~30 minutes
+📘 **[Customer Implementation Guide](docs/CUSTOMER-IMPLEMENTATION.md)** — the rollout playbook for client/team deployments
 
 ## What's inside
 

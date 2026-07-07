@@ -18,7 +18,7 @@ export default function Sidebar({ page, onNavigate }) {
       <div className="brand">
         <span className="brand-bolt">⚡</span>
         <div>
-          <div className="brand-name">Harness</div>
+          <div className="brand-name">Agent 9</div>
           <div className="brand-sub">visual AI console</div>
         </div>
       </div>
